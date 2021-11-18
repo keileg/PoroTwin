@@ -50,7 +50,7 @@ class ParabolicSolver(PhysicsModel):
         gb.add_nodes([g])
         data = gb.node_props(g)
 
-        self.gb = gb
+        self._gb = gb
 
         # Keywords for discretizations
         flow_key = "flow"
@@ -133,20 +133,20 @@ class ParabolicSolver(PhysicsModel):
         """
         dt = params["dt"]
         t = params["t"]
-        alpha = params["alpha"]
+        alpha = params["ALPHA"]
 
-        g = self._gb.grids_of_dimension(self.gb.dim_max())[0]
+        g = self._gb.grids_of_dimension(self._gb.dim_max())[0]
         state = self._gb.node_props(g, pp.STATE)
 
         if p_prev is None:
-            p_prev = np.zeros(self.gb.num_cells())
+            p_prev = np.zeros(self._gb.num_cells())
 
         vec = p_prev if p_now is None else p_now
         state[self._var_name] = p_prev
         state[pp.ITERATE][self._var_name] = vec
 
         if source_given is None:
-            source_given = np.zeros(self.gb.num_cells())
+            source_given = np.zeros(self._gb.num_cells())
 
         pi = np.pi
         xc = g.cell_centers
@@ -160,9 +160,9 @@ class ParabolicSolver(PhysicsModel):
         else:
             source_known = np.zeros(g.num_cells)
 
-        known_sol = self._anasol(params)
+        known_sol = self.anasol(params)
 
-        flow_params = self.gb.node_props(g)[pp.PARAMETERS]["flow"]
+        flow_params = self._gb.node_props(g)[pp.PARAMETERS]["flow"]
         flow_params["bc_values"][0] = known_sol[0]
         flow_params["bc_values"][-1] = known_sol[-1]
 
@@ -182,23 +182,23 @@ class ParabolicSolver(PhysicsModel):
 
         # This is a linear model, we need only discretize once
         if not self._is_discretized:
-            self._eq_manager.discretize(self.gb)
+            self._eq_manager.discretize(self._gb)
             self._is_discretized = True
 
         A, b = self._eq_manager.assemble()
 
         return A, b
 
-    def _anasol(self, params: Parameters) -> Vector:
+    def anasol(self, params: Parameters) -> Vector:
         # Hard coded analytical solution.
         t = params["t"]
-        alpha = params["alpha"]
+        alpha = params["ALPHA"]
         assert isinstance(t, float)
         assert isinstance(alpha, float)
         pi = np.pi
-        g = self._gb.grids_of_dimension(self.gb.dim_max())[0]
+        g = self._gb.grids_of_dimension(self._gb.dim_max())[0]
         xc = g.cell_centers
-        return 1 + np.sin(2 * pi * t + alpha) * np.cos(2 * pi * xc[0])
+        return {"primary": 1 + np.sin(2 * pi * t + alpha) * np.cos(2 * pi * xc[0])}
 
     @property
     def ndof(self) -> int:
@@ -207,6 +207,13 @@ class ParabolicSolver(PhysicsModel):
     def dirichlet_dofs(self) -> List[int]:
         # No Dirichlet dofs for a FV method
         return []
+
+    def initial_condition(self, params: Parameters) -> Vector:
+        """Return the configured initial condition for a set of parameters."""
+        gb = self._gb
+        g = gb.grids_of_dimension(gb.dim_max())[0]
+        state = gb.node_props(g, pp.STATE)
+        return state[self._var_name]
 
     def predict(self, params: Parameters, uprev: Vector) -> Vector:
         """Make an uncorrected prediction of the next timestep given the
