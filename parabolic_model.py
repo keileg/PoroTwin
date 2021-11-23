@@ -163,8 +163,8 @@ class ParabolicSolver(PhysicsModel):
         known_sol = self.anasol(params)
 
         flow_params = self._gb.node_props(g)[pp.PARAMETERS]["flow"]
-        flow_params["bc_values"][0] = known_sol[0]
-        flow_params["bc_values"][-1] = known_sol[-1]
+        flow_params["bc_values"][0] = known_sol["primary"][0]
+        flow_params["bc_values"][-1] = known_sol["primary"][-1]
 
         mass = self._eq_comp["mass"]
         mpfa = self._eq_comp["mpfa"]
