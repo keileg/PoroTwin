@@ -1,7 +1,8 @@
-from typing import List, Dict, Union, Optional
+from typing import List, Dict, Union, Optional, Tuple
 
 import numpy as np
 import porepy as pp
+import scipy.sparse as sps
 
 import scipy.sparse.linalg as spla
 from Costa.api import PhysicsModel
@@ -21,14 +22,22 @@ class ParabolicSolver(PhysicsModel):
     """
 
     def __init__(self, known_solution: bool) -> None:
-        self._var_name = "p"
+        self.variable = "p"
+        self.flow_parameter_key = "flow"
 
         self._known_solution = known_solution
 
         self._set_model()
         self._is_discretized = False
 
+        # Keywords for discretizations
+
     def _set_model(self):
+        self.create_grid()
+        self._set_parameters()
+        self._set_equations()
+
+    def create_grid(self):
         # Set the simulation model, including parameters.
         # In the future, this information should be read from an input file
 
@@ -50,59 +59,67 @@ class ParabolicSolver(PhysicsModel):
         gb.add_nodes([g])
         data = gb.node_props(g)
 
-        self._gb = gb
+        self.dim = dim
+        self.gb = gb
 
-        # Keywords for discretizations
-        flow_key = "flow"
-        mass_key = "mass"
+    def _set_parameters(self) -> None:
 
         tol = 1e-6
-        if dim == 1:
-            dir_faces = np.where(g.tags["domain_boundary_faces"])[0]
-        else:
-            dir_faces = np.where(np.abs(g.face_centers[1]) < tol)[0]
+        for g, d in self.gb:
 
-        # Boundary conditions are specified by their type and numerical value
-        bc_type = dir_faces.size * ["dir"]
-        bc = pp.BoundaryCondition(g, faces=dir_faces, cond=bc_type)
-        bc_values = np.zeros(g.num_faces)
+            if self.dim == 1:
+                dir_faces = np.where(g.tags["domain_boundary_faces"])[0]
+            else:
+                dir_faces = np.where(np.abs(g.face_centers[1]) < tol)[0]
 
-        # Permeability specification
-        perm = 1
-        K = pp.SecondOrderTensor(np.ones(g.num_cells) * perm)
+            # Boundary conditions are specified by their type and numerical value
+            bc_type = dir_faces.size * ["dir"]
+            bc = pp.BoundaryCondition(g, faces=dir_faces, cond=bc_type)
+            bc_values = np.zeros(g.num_faces)
 
-        # Parameters for the elliptic term are permeability and boundary condition
-        flow_param = {"second_order_tensor": K, "bc": bc, "bc_values": bc_values}
-        mass_param = {"mass_weight": 1 * np.ones(g.num_cells)}
+            # Permeability specification
+            perm = 1
+            K = pp.SecondOrderTensor(np.ones(g.num_cells) * perm)
 
-        # Set all data
-        data.update(
-            {
-                pp.PARAMETERS: {flow_key: flow_param, mass_key: mass_param},
-                pp.DISCRETIZATION_MATRICES: {flow_key: {}, mass_key: {}},
-                pp.PRIMARY_VARIABLES: {self._var_name: {"cells": 1}},
+            # Parameters for the elliptic term are permeability and boundary condition
+            flow_param = {
+                "second_order_tensor": K,
+                "bc": bc,
+                "bc_values": bc_values,
+                "mass_weight": 1 * np.ones(g.num_cells),
             }
-        )
-        # Initial values - these will be overridden by the Costa-related methods
-        # if necessary.
-        data[pp.STATE] = {
-            self._var_name: np.zeros(g.num_cells),
-            pp.ITERATE: {self._var_name: np.zeros(g.num_cells)},
-        }
 
+            # Set all data
+            d.update(
+                {
+                    pp.PARAMETERS: {self.flow_parameter_key: flow_param},
+                    pp.DISCRETIZATION_MATRICES: {self.flow_parameter_key: {}},
+                    pp.PRIMARY_VARIABLES: {self.variable: {"cells": 1}},
+                }
+            )
+            # Initial values - these will be overridden by the Costa-related methods
+            # if necessary.
+            d[pp.STATE] = {
+                self.variable: np.zeros(g.num_cells),
+                pp.ITERATE: {self.variable: np.zeros(g.num_cells)},
+            }
+
+    def _set_equations(self) -> None:
         # Define equations, Ad style. Again, this is overkill, but it will
         # become useful when we get to non-linear problems
-        grids = [g]
-
+        gb = self.gb
         dof_manager = pp.DofManager(gb)
         eq_manager = pp.ad.EquationManager(gb, dof_manager)
 
-        p = eq_manager.variable(g, self._var_name)
+        # Assume there is a single grids
+        g = gb.grids_of_dimension(self.dim)[0]
+        grids = [g]
+        p = eq_manager.variable(g, self.variable)
 
-        mpfa = pp.ad.TpfaAd(flow_key, grids)
-        mass = pp.ad.MassMatrixAd(mass_key, grids)
+        mpfa = pp.ad.TpfaAd(self.flow_parameter_key, grids)
+        mass = pp.ad.MassMatrixAd(self.flow_parameter_key, grids)
 
-        bc = pp.ad.BoundaryCondition(flow_key, grids=grids)
+        bc = pp.ad.BoundaryCondition(self.flow_parameter_key, grids=grids)
 
         div = pp.ad.Divergence(grids=grids)
 
@@ -123,7 +140,7 @@ class ParabolicSolver(PhysicsModel):
         p_prev: Optional[np.ndarray] = None,
         p_now: Optional[np.ndarray] = None,
         source_given=None,
-    ):
+    ) -> Tuple[sps.spmatrix, np.ndarray]:
         """Discretize and assemble (non-linear) system.
 
         Parameters:
@@ -135,18 +152,18 @@ class ParabolicSolver(PhysicsModel):
         t = params["t"]
         alpha = params["ALPHA"]
 
-        g = self._gb.grids_of_dimension(self._gb.dim_max())[0]
-        state = self._gb.node_props(g, pp.STATE)
+        g = self.gb.grids_of_dimension(self.gb.dim_max())[0]
+        state = self.gb.node_props(g, pp.STATE)
 
         if p_prev is None:
-            p_prev = np.zeros(self._gb.num_cells())
+            p_prev = np.zeros(self.gb.num_cells())
 
         vec = p_prev if p_now is None else p_now
-        state[self._var_name] = p_prev
-        state[pp.ITERATE][self._var_name] = vec
+        state[self.variable] = p_prev
+        state[pp.ITERATE][self.variable] = vec
 
         if source_given is None:
-            source_given = np.zeros(self._gb.num_cells())
+            source_given = np.zeros(self.gb.num_cells())
 
         pi = np.pi
         xc = g.cell_centers
@@ -162,7 +179,7 @@ class ParabolicSolver(PhysicsModel):
 
         known_sol = self.anasol(params)
 
-        flow_params = self._gb.node_props(g)[pp.PARAMETERS]["flow"]
+        flow_params = self.gb.node_props(g)[pp.PARAMETERS]["flow"]
         flow_params["bc_values"][0] = known_sol["primary"][0]
         flow_params["bc_values"][-1] = known_sol["primary"][-1]
 
@@ -170,7 +187,7 @@ class ParabolicSolver(PhysicsModel):
         mpfa = self._eq_comp["mpfa"]
         div = self._eq_comp["div"]
         bc = self._eq_comp["bc"]
-        p = self._eq_comp[self._var_name]
+        p = self._eq_comp[self.variable]
         p_prev = p.previous_timestep()
 
         source_ad = pp.ad.Array(source_given + source_known)
@@ -182,7 +199,7 @@ class ParabolicSolver(PhysicsModel):
 
         # This is a linear model, we need only discretize once
         if not self._is_discretized:
-            self._eq_manager.discretize(self._gb)
+            self._eq_manager.discretize(self.gb)
             self._is_discretized = True
 
         A, b = self._eq_manager.assemble()
@@ -196,13 +213,13 @@ class ParabolicSolver(PhysicsModel):
         assert isinstance(t, float)
         assert isinstance(alpha, float)
         pi = np.pi
-        g = self._gb.grids_of_dimension(self._gb.dim_max())[0]
+        g = self.gb.grids_of_dimension(self.gb.dim_max())[0]
         xc = g.cell_centers
         return {"primary": 1 + np.sin(2 * pi * t + alpha) * np.cos(2 * pi * xc[0])}
 
     @property
     def ndof(self) -> int:
-        return self._gb.num_cells()
+        return self.gb.num_cells()
 
     def dirichlet_dofs(self) -> List[int]:
         # No Dirichlet dofs for a FV method
@@ -210,10 +227,10 @@ class ParabolicSolver(PhysicsModel):
 
     def initial_condition(self, params: Parameters) -> Vector:
         """Return the configured initial condition for a set of parameters."""
-        gb = self._gb
+        gb = self.gb
         g = gb.grids_of_dimension(gb.dim_max())[0]
         state = gb.node_props(g, pp.STATE)
-        return state[self._var_name]
+        return state[self.variable]
 
     def predict(self, params: Parameters, uprev: Vector) -> Vector:
         """Make an uncorrected prediction of the next timestep given the
