@@ -1,4 +1,4 @@
-"""
+"""Implementation of a linear advection model, wrapped as a Costa PhysicsModel.
 """
 from typing import List, Dict, Union, Optional, Tuple
 
@@ -15,6 +15,20 @@ Vector = np.ndarray
 
 
 class LinearAdvection(PhysicsModel):
+    """Implementation of the linear advection physics model.
+
+    The class is set to solve a problem defined in Wang et al (SIAM, around 2000),
+    with circular motion of a Gaussian blob. To override this behavior, change the
+    methods
+        create_grid()
+        _set_parameters()
+        _initial_condition()
+
+    To solve a time step of linear advection, use the method predict, as illustrated
+    in the bottom of this file.
+
+    """
+
     def __init__(self) -> None:
         self.variable = "u"
 
@@ -32,7 +46,7 @@ class LinearAdvection(PhysicsModel):
         # Grid size and resolution
         dim = 2
 
-        Nx = [100, 100]
+        Nx = [64, 64]
         phys_dims = np.array([1, 1])
         g = pp.CartGrid(Nx, phys_dims)
         g.nodes[:2] -= 0.5
@@ -228,19 +242,21 @@ class LinearAdvection(PhysicsModel):
         return uprev + spla.spsolve(A, b)
 
 
-if True:
-    params = {"dt": 0.001}
+if __name__ == "__main__":
+    T = np.pi / 2
+    n_steps = 10
+    params = {"dt": T / n_steps}
     model = LinearAdvection()
     U = model._initial_condition(model.gb.grids_of_dimension(2)[0])
 
     exp = pp.Exporter(model.gb, "advection", folder_name="tmp_viz")
     time_steps = []
 
-    for i in range(1000):
+    for i in range(n_steps):
         Up = U.copy()
         U = model.predict(params, uprev=Up)
 
-        if i % 100 == 0:
+        if i % 1 == 0:
             exp.write_vtu([model.variable], time_dependent=True, time_step=i)
             time_steps.append(i)
 
