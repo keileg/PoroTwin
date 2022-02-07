@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 from Costa.iot import PhysicalDevice
 from parabolic_model import ParabolicSolver
-from linear_advection_model import LinearAdvection
+from linear_advection_model import LinearAdvection, LinearAdvectionWithGravity
 
 import time
 
@@ -49,7 +49,7 @@ def main_parabolic():
 
 
 def main_advection():
-    timesteps = 3
+    timesteps = 1000
     final = np.pi / 2
     pbm = ParabolicSolver(known_solution=True)
     pbm = LinearAdvection()
@@ -71,5 +71,28 @@ def main_advection():
         print("done")
 
 
+def main_advection_with_gravity():
+    timesteps = 1000
+    final = np.pi / 2
+    pbm = ParabolicSolver(known_solution=True)
+    pbm = LinearAdvectionWithGravity(params={"rho_1": 1, "rho_2": 1.03})
+    U = pbm._initial_condition(pbm.gb.grids_of_dimension(2)[0])
+
+    with PhysicalDevice(cstr) as device:
+        device.emit_clean()
+        device.emit_state({"t": 0, "dt": final / timesteps}, U)
+        for step in range(timesteps + 1):
+            t = step * final / timesteps
+            params = {"t": t, "dt": final / timesteps}
+            Up = U.copy()
+            U = pbm.predict(params, uprev=Up)
+            device.emit_state(params, U)
+
+            if step % 10 == 0:
+                print(f"Time step {step}")
+
+        print("done")
+
+
 if __name__ == "__main__":
-    main_advection()
+    main_advection_with_gravity()
