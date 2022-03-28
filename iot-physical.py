@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 import numpy as np
-from Costa.iot import PhysicalDevice
+from Costa.iot import PhysicalDevice, IotConfig
 from parabolic_model import ParabolicSolver
 from linear_advection_model import LinearAdvection, LinearAdvectionWithGravity
 
@@ -11,6 +11,29 @@ import time
 with open("config.json", "r") as f:
     config = json.load(f)
     cstr = config["COSTA_PHYSICAL_CSTR"]
+
+
+class IotConfigJson(IotConfig):
+    def __init__(self, config):
+
+        self.registry = config.get("COSTA_RSTR")
+        self.hub = config.get("COSTA_HSTR")
+        self.storage = config.get("COSTA_SSTR")
+        self.container = config.get("COSTA_CONTAINER")
+
+        self.devices = {"porepy_physical": config["COSTA_PHYSICAL_CSTR"]}
+
+        """
+        for key, value in env.items():
+            if key.startswith("COSTA_") and key.endswith("_CSTR"):
+                try:
+                    _, device = next(
+                        k for k in value.split(";") if k.startswith("DeviceId")
+                    ).split("=")
+                    self.devices[device] = value
+                except (StopIteration, TypeError, ValueError):
+                    pass
+        """
 
 
 def main_parabolic():
