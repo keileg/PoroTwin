@@ -6,6 +6,7 @@ import scipy.sparse as sps
 
 import scipy.sparse.linalg as spla
 from Costa.api import PhysicsModel
+import json
 
 
 Parameters = Dict[str, Union[float, List[float]]]
@@ -21,11 +22,12 @@ class ParabolicSolver(PhysicsModel):
 
     """
 
-    def __init__(self, known_solution: bool) -> None:
+    def __init__(self, known_solution: bool, config: Dict) -> None:
         self.variable = "p"
         self.flow_parameter_key = "flow"
 
         self._known_solution = known_solution
+        self._config = config
 
         self._set_model()
         self._is_discretized = False
@@ -42,14 +44,11 @@ class ParabolicSolver(PhysicsModel):
         # In the future, this information should be read from an input file
 
         # Grid size and resolution
-        dim = 1
+        dim = 2
 
-        if dim == 1:
-            Nx = [20]
-            phys_dims = np.array([1])
-        else:
-            Nx = [10, 10]
-            phys_dims = np.array([1, 1])
+        Nx = self._config["Nx"]
+        phys_dims = self._config.get("phys_dims", np.ones(2))
+
         g = pp.CartGrid(Nx, phys_dims)
         g.compute_geometry()
 
@@ -57,24 +56,22 @@ class ParabolicSolver(PhysicsModel):
         # for this problem, but it works).
         gb = pp.GridBucket()
         gb.add_nodes([g])
-        data = gb.node_props(g)
 
         self.dim = dim
         self.gb = gb
 
     def _set_parameters(self) -> None:
 
-        tol = 1e-6
         for g, d in self.gb:
 
-            if self.dim == 1:
-                dir_faces = np.where(g.tags["domain_boundary_faces"])[0]
-            else:
-                dir_faces = np.where(np.abs(g.face_centers[1]) < tol)[0]
+            bound_faces = np.where(g.tags["domain_boundary_faces"])[0]
+            bc_type = bound_faces.size * ["neu"]
 
-            # Boundary conditions are specified by their type and numerical value
-            bc_type = dir_faces.size * ["dir"]
-            bc = pp.BoundaryCondition(g, faces=dir_faces, cond=bc_type)
+            dir_faces = self._config.get("dir_faces", [])
+
+            for di in dir_faces:
+                bc_type[di] = "dir"
+            bc = pp.BoundaryCondition(g, faces=bound_faces, cond=bc_type)
             bc_values = np.zeros(g.num_faces)
 
             # Permeability specification
@@ -86,7 +83,7 @@ class ParabolicSolver(PhysicsModel):
                 "second_order_tensor": K,
                 "bc": bc,
                 "bc_values": bc_values,
-                "mass_weight": 1 * np.ones(g.num_cells),
+                "mass_weight": self._config.get("mass_weight", np.zeros(g.num_cells)),
             }
 
             # Set all data
@@ -180,8 +177,6 @@ class ParabolicSolver(PhysicsModel):
         known_sol = self.anasol(params)
 
         flow_params = self.gb.node_props(g)[pp.PARAMETERS]["flow"]
-        flow_params["bc_values"][0] = known_sol["primary"][0]
-        flow_params["bc_values"][-1] = known_sol["primary"][-1]
 
         mass = self._eq_comp["mass"]
         mpfa = self._eq_comp["mpfa"]
@@ -191,7 +186,7 @@ class ParabolicSolver(PhysicsModel):
         p_prev = p.previous_timestep()
 
         source_ad = pp.ad.Array(source_given + source_known)
-        eq = div * (mpfa.flux * p + mpfa.bound_flux * bc) + source_ad
+        eq = div * (mpfa.flux * p + mpfa.bound_flux * bc) - source_ad
         if dt is not None:
             eq += mass * (p - p_prev) / dt
 
@@ -243,7 +238,13 @@ class ParabolicSolver(PhysicsModel):
         """
         A, b = self._assemble(params, p_prev=uprev)
         dx = spla.spsolve(A, b)
-        return uprev + dx
+        u = uprev + dx
+
+        for g, d in self.gb:
+            flux = d[pp.DISCRETIZATION_MATRICES][self.flow_parameter_key]["flux"] * u
+            d[pp.PARAMETERS][self.flow_parameter_key]["darcy_flux"] = flux
+
+        return u
 
     def residual(self, params: Parameters, uprev: Vector, unext: Vector) -> Vector:
         """Calculate the residual b - Au given the assumed solution unext.
@@ -269,4 +270,8 @@ class ParabolicSolver(PhysicsModel):
 
         # Assemble, solve and return
         A, b = self._assemble(params=params, p_prev=uprev, source_given=sigma)
-        return uprev + spla.spsolve(A, b)
+        u = uprev + spla.spsolve(A, b)
+        for g, d in self.gb:
+            flux = d[pp.DISCRETIZATION_MATRICES][self.flow_parameter_key]["flux"] * u
+            d[pp.PARAMETERS][self.flow_parameter_key]["darcy_flux"] = flux
+        return u
