@@ -81,35 +81,6 @@ class IotConfigJson(IotConfig):
         self.devices = {"image_processor": config["COSTA_PHYSICAL_CSTR"]}
 
 
-class ManuallyControlledFluidFlower(PhysicalDevice):
-    def __init__(self, name: str, config: IotConfig):
-        super().__init__(name, config)
-
-        self._num_wells = 5
-
-        self._well_rates = np.zeros(self.num_wells)
-
-    def on_control(self, new_rates: np.ndarray) -> dict[str, bool]:
-
-        tol = 1e-8
-
-        changed = np.logical_not(np.allclose(self._well_rates, new_rates, tol))
-
-        s = ""
-        for ind, rate in enumerate(new_rates):
-            s += f"Rate in well {ind}: {rate}"
-
-            if changed[ind]:
-                s += "   <<<<< CHANGED"
-            s += "\n"
-
-        print(s)
-
-        self._well_rates = new_rates
-
-        return {"success": True}
-
-
 if __name__ == "__main__":
 
     # Folder where the image data will be uploaded.
@@ -127,7 +98,7 @@ if __name__ == "__main__":
 
     # Start the monitoring process with a Costa PhysicalDecive that will
     # communicate with Azure.
-    with ManuallyControlledFluidFlower("image_processor", iot_config) as device:
+    with PhysicalDevice("image_processor", iot_config) as device:
         # This seems always to be necessary
         device.emit_clean()
 
