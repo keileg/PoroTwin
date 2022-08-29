@@ -84,7 +84,7 @@ class IotConfigJson(IotConfig):
 if __name__ == "__main__":
 
     # Folder where the image data will be uploaded.
-    path_to_data_folder = Path("/home/eke001/Dropbox/PoroTwin")
+    path_to_data_folder = Path(".")
     # Watchdog observer which will monitor the image data directory
     observer = Observer()
 
