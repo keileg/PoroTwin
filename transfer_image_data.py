@@ -1,29 +1,19 @@
-from typing import List, Dict, Union, Optional, Tuple
-from pathlib import Path
-import shutil
-import os
-from datetime import datetime
-from PIL import Image
-import time
-
-import numpy as np
-import porepy as pp
-import scipy.sparse as sps
-
-import scipy.sparse.linalg as spla
-from Costa.iot import PhysicalDevice, IotConfig
 import json
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+import os
+import shutil
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
+
 import cv2
 import daria as da
 import numpy as np
 import skimage
-import matplotlib.pyplot as plt
-from scipy import ndimage as ndi
+from Costa.iot import IotConfig, PhysicalDevice
 from daria.corrections.color.colorchecker import ColorCorrection
-import time
-
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 Parameters = Dict[str, Union[float, List[float]]]
 Vector = np.ndarray
