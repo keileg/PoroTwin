@@ -42,8 +42,9 @@ def create_grid(
     return mdg, box
 
 
-class LinearAdvectionTwoWells(LinearAdvectionModel):
-    """Full setup of a linear advection problem for a two-well system.
+class LinearAdvectionInjectionProduction(LinearAdvectionModel):
+    """Full setup of a linear advection problem for a system with injection and
+    production wells.
 
     The flow field is calculated by calling an incompressible flow system.
     """
@@ -62,6 +63,11 @@ class LinearAdvectionTwoWells(LinearAdvectionModel):
         self.dim = 2
 
         self.g = mdg.subdomains(dim=2)[0]
+
+        # Store the location of the wells. Coordinates will be converted
+        # to cell indices when we have a grid to work with.
+        self._well_indices = self.g.closest_cell(self.params["well_coordinates"])
+        self._well_rates = np.zeros(self._well_indices.size)
 
     def _set_parameters(self) -> None:
 
@@ -87,24 +93,12 @@ class LinearAdvectionTwoWells(LinearAdvectionModel):
         # Solve flow problem and update the Darcy field.
         self.update_flow_field()
 
-    def _injection(self, g: pp.Grid) -> np.ndarray:
-        """Source term of injection cell
-        Units: m^3 / s
-        """
-        injection_cell = g.closest_cell(self.params["injection"])
-        src = np.zeros(g.num_cells)
-        src[injection_cell] = self.params[
-            "injection_rate"
-        ]  # / g.cell_volumes[injection_cell]
-        return src
-
-    def _production(self, g: pp.Grid) -> np.ndarray:
-        src = np.zeros(g.num_cells)
-        production_cell = g.closest_cell(self.params["production"])
-        src[production_cell] = self.params[
-            "production_rate"
-        ]  # / g.cell_volumes[production_cell]
-        return src
+    def _bc_type(self, g):
+        # Define boundary condition on faces
+        xf = g.face_centers
+        top = np.where(np.abs(xf[1] - np.max(xf[1])) < 1e-5)[0]
+        # Define boundary condition on faces
+        return pp.BoundaryCondition(g, top, "dir")
 
     def update_flow_field(self) -> None:
         """Calculate the flow field, calling an incompressible flow model.
@@ -113,10 +107,11 @@ class LinearAdvectionTwoWells(LinearAdvectionModel):
         if the rates have changed.
 
         """
-
+        print("Update flow field to new well controls")
         params = self.params.copy()
         params["file_name"] = "flow_solution"
         params["folder_name"] = "tmp_flow"
+        params["well_rates"] = self._well_rates
 
         model = FlowModel(params=params)
 
@@ -134,16 +129,18 @@ class LinearAdvectionTwoWells(LinearAdvectionModel):
             model.dof_manager
         ).val
 
+        self._eq_manager.discretize(self.mdg)
+
+    def control(self, payload: dict) -> dict:
+        self.set_well_rates(payload)
+        self.update_flow_field()
+        return {"success": True}
+
     def initial_condition(self):
 
         g = self.mdg.subdomains(dim=self.mdg.dim_max())[0]
 
         return np.zeros(g.num_cells)
-
-    def _create_dof_and_eq_manager(self) -> None:
-        """Create a dof_manager and eq_manager based on a mixed-dimensional grid"""
-        self.dof_manager = pp.DofManager(self.mdg)
-        self._eq_manager = pp.ad.EquationManager(self.mdg, self.dof_manager)
 
 
 class FlowModel(pp.IncompressibleFlow):
@@ -153,7 +150,6 @@ class FlowModel(pp.IncompressibleFlow):
 
     def __init__(self, params: dict) -> None:
         super().__init__(params=params)
-        self.params = params
 
     def create_grid(self):
         mdg, box = create_grid(self.params)
@@ -175,26 +171,21 @@ class FlowModel(pp.IncompressibleFlow):
         """Zero source term.
         Units: m^3 / s
         """
-        injection_cell = g.closest_cell(self.params["injection"])
-        production_cell = g.closest_cell(self.params["production"])
-
         src = np.zeros(g.num_cells)
-        src[injection_cell] = self.params["injection_rate"]
-        src[production_cell] = self.params["production_rate"]
+        cells = g.closest_cell(self.params["well_coordinates"])
+        src[cells] = self.params["well_rates"]
 
         return src
 
 
 if __name__ == "__main__":
     #
-    model = LinearAdvectionTwoWells(
+    model = LinearAdvectionInjectionProduction(
         {
             "Nx": [50, 50],
             "phys_dims": [1, 1],
-            "injection": np.reshape([1 / 4, 1 / 3], (-1, 1)),
-            "production": np.reshape([3 / 4, 1 / 3], (-1, 1)),
-            "injection_rate": 1,
-            "production_rate": -1,
+            "well_coordinates": np.array([[1 / 4, 1 / 3], [3 / 4, 1 / 3]]).T,
+            "well_rates": [1, -1],
             "permeability": 1,
         }
     )
@@ -203,7 +194,7 @@ if __name__ == "__main__":
     time_steps = [0]
 
     T = 1
-    n_steps = 100
+    n_steps = 20
     params = {"dt": T / n_steps}
 
     U = model.initial_condition()
@@ -212,22 +203,37 @@ if __name__ == "__main__":
 
     exp.write_vtu([model.variable], time_dependent=True, time_step=0)
 
-    for i in range(n_steps):
-        Up = U.copy()
-        # The AD formulation of PorePy solves for the update of U, thus interpret
-        # the result as an update.
-        U += model.solve(params, uprev=Up)
+    well_controls = [[1, -1], [1, 0], [-1, 1]]
 
-        model.dof_manager.distribute_variable(U)
+    tot_step = 0
 
-        if i > 0 and i % 5 == 0:
-            print(f"Time step {i}")
-            mdg = model.mdg
-            g = model.mdg.subdomains(dim=2)[0]
-            state = mdg.subdomain_data(g)[pp.STATE]
-            state[model.variable] = U
-            exp.write_vtu([model.variable], time_step=i)
+    for control in well_controls:
 
-            time_steps.append(i)
+        model.control({"well_rates": control})
+
+        for i in range(n_steps):
+            Up = U.copy()
+            # The AD formulation of PorePy solves for the update of U, thus interpret
+            # the result as an update.
+            U += model.solve(params, uprev=Up)
+
+            model.dof_manager.distribute_variable(U)
+
+            if i > 0 and i % 5 == 0:
+                print(f"Time step {i + tot_step}")
+                mdg = model.mdg
+                g = model.mdg.subdomains(dim=2)[0]
+                state = mdg.subdomain_data(g)[pp.STATE]
+                state[model.variable] = U
+                exp.write_vtu(
+                    [model.variable], time_dependent=True, time_step=i + tot_step
+                )
+
+                time_steps.append(i + tot_step)
+
+        exp.write_vtu([model.variable], time_dependent=True, time_step=i + tot_step)
+
+        time_steps.append(i + 1 + tot_step)
+        tot_step += n_steps
 
     exp.write_pvd(time_steps)

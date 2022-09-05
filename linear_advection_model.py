@@ -21,11 +21,11 @@ class LinearAdvectionModel(PorePyCostaModel):
 
     """
 
-    def __init__(self, config: dict) -> None:
+    def __init__(self, params: dict) -> None:
         self.variable = "u"
 
         self.parameter_key = "transport"
-        self._config = config
+        self.params = params
 
         self._is_discretized = False
 
@@ -33,10 +33,16 @@ class LinearAdvectionModel(PorePyCostaModel):
         """Source term of injection cell
         Units: m^3 / s
         """
-        return np.zeros(g.num_cells)
+        is_injection = self._well_rates >= 0
+        rates = np.zeros(g.num_cells)
+        rates[self._well_indices[is_injection]] = self._well_rates[is_injection]
+        return rates
 
     def _production(self, g: pp.Grid) -> np.ndarray:
-        return np.zeros(g.num_cells)
+        is_production = self._well_rates < 0
+        rates = np.zeros(g.num_cells)
+        rates[self._well_indices[is_production]] = self._well_rates[is_production]
+        return rates
 
     def _bc_type(self, g):
         # Define boundary condition on faces
@@ -49,6 +55,14 @@ class LinearAdvectionModel(PorePyCostaModel):
 
     def _mass_weight(self, g: pp.Grid) -> np.ndarray:
         return np.ones(g.num_cells)
+
+    def set_well_rates(self, params: dict) -> None:
+        if "well_rates" in params:
+            self._well_rates = np.asarray(params["well_rates"])
+
+    def control(self, payload: dict) -> dict:
+        self.set_well_rates(payload)
+        return {"success": True}
 
     def solve(
         self, params: Parameters, uprev: np.ndarray, rhs: Optional[np.ndarray] = None
@@ -98,6 +112,8 @@ class LinearAdvectionModel(PorePyCostaModel):
 
         """
         dt = params["dt"]
+
+        self.set_well_rates(params)
 
         g = self.mdg.subdomains(dim=self.mdg.dim_max())[0]
         state = self.mdg.subdomain_data(g)[pp.STATE]

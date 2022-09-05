@@ -82,6 +82,10 @@ class PorePyCostaModel(pp.models.abstract_model.AbstractModel):
 
         """
 
+    @abc.abstractmethod
+    def control(self, params: Parameters) -> dict:
+        """ """
+
     def prepare_simulation(self) -> None:
         self.create_grid()
 
@@ -184,3 +188,6 @@ class PorePyPhysicsModel(PhysicsModel):
 
         """
         return self._model.solve(params, uprev=uprev, rhs=sigma)
+
+    def control() -> dict[str, bool]:
+        return self._model.control(params)
