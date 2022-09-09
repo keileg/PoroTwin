@@ -3,7 +3,12 @@ producer.
 """
 from typing import Union
 import numpy as np
+from datetime import datetime
 import porepy as pp
+import time
+from Costa.iot import IotConfig
+import json
+from porepy_physical_model import PorePyPhysicsModel, PorePyPhysicalDevice
 
 from linear_advection_model import LinearAdvectionModel
 
@@ -179,61 +184,100 @@ class FlowModel(pp.IncompressibleFlow):
 
 
 if __name__ == "__main__":
-    #
-    model = LinearAdvectionInjectionProduction(
-        {
-            "Nx": [50, 50],
-            "phys_dims": [1, 1],
-            "well_coordinates": np.array([[1 / 4, 1 / 3], [3 / 4, 1 / 3]]).T,
-            "well_rates": [1, -1],
-            "permeability": 1,
-        }
-    )
-    exp = pp.Exporter(model.mdg, file_name="two_wells", folder_name="tmp_viz")
+    offline = False
 
-    time_steps = [0]
+    problem_setup = {
+        "Nx": [50, 50],
+        "phys_dims": [1, 1],
+        "well_coordinates": np.array([[1 / 4, 1 / 3], [3 / 4, 1 / 3]]).T,
+        "well_rates": [1, -1],
+        "permeability": 1,
+    }
 
-    T = 1
-    n_steps = 20
-    params = {"dt": T / n_steps}
+    if offline:
+        #
+        model = LinearAdvectionInjectionProduction(problem_setup)
+        exp = pp.Exporter(model.mdg, file_name="two_wells", folder_name="tmp_viz")
 
-    U = model.initial_condition()
-    g = model.g
-    model.mdg.subdomain_data(g)[pp.STATE][model.variable] = U
+        time_steps = [0]
 
-    exp.write_vtu([model.variable], time_dependent=True, time_step=0)
+        T = 1
+        n_steps = 20
+        params = {"dt": T / n_steps}
 
-    well_controls = [[1, -1], [1, 0], [-1, 1]]
+        U = model.initial_condition()
+        g = model.g
+        model.mdg.subdomain_data(g)[pp.STATE][model.variable] = U
 
-    tot_step = 0
+        exp.write_vtu([model.variable], time_dependent=True, time_step=0)
 
-    for control in well_controls:
+        well_controls = [[1, -1], [1, 0], [-1, 1]]
 
-        model.control({"well_rates": control})
+        tot_step = 0
 
-        for i in range(n_steps):
-            Up = U.copy()
-            # The AD formulation of PorePy solves for the update of U, thus interpret
-            # the result as an update.
-            U += model.solve(params, uprev=Up)
+        for control in well_controls:
 
-            model.dof_manager.distribute_variable(U)
+            model.control({"well_rates": control})
 
-            if i > 0 and i % 5 == 0:
-                print(f"Time step {i + tot_step}")
-                mdg = model.mdg
-                g = model.mdg.subdomains(dim=2)[0]
-                state = mdg.subdomain_data(g)[pp.STATE]
-                state[model.variable] = U
-                exp.write_vtu(
-                    [model.variable], time_dependent=True, time_step=i + tot_step
-                )
+            for i in range(n_steps):
+                Up = U.copy()
+                # The AD formulation of PorePy solves for the update of U, thus interpret
+                # the result as an update.
+                U += model.solve(params, uprev=Up)
 
-                time_steps.append(i + tot_step)
+                model.dof_manager.distribute_variable(U)
 
-        exp.write_vtu([model.variable], time_dependent=True, time_step=i + tot_step)
+                if i > 0 and i % 5 == 0:
+                    print(f"Time step {i + tot_step}")
+                    mdg = model.mdg
+                    g = model.mdg.subdomains(dim=2)[0]
+                    state = mdg.subdomain_data(g)[pp.STATE]
+                    state[model.variable] = U
+                    exp.write_vtu(
+                        [model.variable], time_dependent=True, time_step=i + tot_step
+                    )
 
-        time_steps.append(i + 1 + tot_step)
-        tot_step += n_steps
+                    time_steps.append(i + tot_step)
 
-    exp.write_pvd(time_steps)
+            exp.write_vtu([model.variable], time_dependent=True, time_step=i + tot_step)
+
+            time_steps.append(i + 1 + tot_step)
+            tot_step += n_steps
+
+        exp.write_pvd(time_steps)
+    else:
+
+        class IotConfigJson(IotConfig):
+            def __init__(self, config: dict) -> None:
+
+                self.registry = config.get("COSTA_RSTR")
+                self.hub = config.get("COSTA_HSTR")
+                self.storage = config.get("COSTA_SSTR")
+                self.container = config.get("COSTA_CONTAINER")
+
+                self.devices = {"porepy_lab": config["COSTA_PHYSICAL_CSTR"]}
+
+            # COSTA Azure configuration: Load connection strings from a
+
+        # file, create a Iot configuration object (COSTA style) which
+        # stores the information.
+        connection_data_file = "config.json"
+        with open(connection_data_file, "r") as f:
+            cfg = json.load(f)
+        iot_config = IotConfigJson(cfg)
+
+        model = LinearAdvectionInjectionProduction(problem_setup)
+
+        # Start the monitoring process with a Costa PhysicalDecive that will
+        # communicate with Azure.
+        with PorePyPhysicalDevice("porepy_lab", iot_config, model) as device:
+            # This seems always to be necessary
+            device.emit_clean()
+            while True:
+                try:
+                    now = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+                    print(now)
+                    time.sleep(60)
+
+                except KeyboardInterrupt:
+                    break
