@@ -60,6 +60,8 @@ class LinearAdvectionModel(PorePyCostaModel):
         if "well_rates" in params:
             self._well_rates = np.asarray(params["well_rates"])
 
+        print(f"New well rates are {self._well_rates}")
+
     def control(self, payload: dict) -> dict:
         self.set_well_rates(payload)
         return {"success": True}
