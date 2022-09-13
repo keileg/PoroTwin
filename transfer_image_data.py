@@ -7,11 +7,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import cv2
-import daria as da
+import daria
 import numpy as np
 import skimage
 from Costa.iot import IotConfig, PhysicalDevice
-from daria.corrections.color.colorchecker import ColorCorrection
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -19,48 +18,76 @@ Parameters = Dict[str, Union[float, List[float]]]
 Vector = np.ndarray
 
 
-def correction(img):
-    """Standard curvature and color correction. Return ROI."""
+def preprocessing(img, **kwargs):
+    """Coarsening, standard curvature and color correction. Return ROI."""
 
-    # Preprocessing. Transform to RGB space
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    # NOTE requires some parameter tuning. Need to choose:
+    # * "resize_factor"
+    # * "roi_color_checker"
+    # * "roi"
+    # * "curvature_config"
+
+    # Resize factor in percent
+    resize_factor = kwargs.pop("resize_factor", 0.1) * 100
+
+    # Coarsen imager
+    img = resize(img, resize_factor)
 
     # Curvature correction
-    img = da.curvature_correction(img)
+    curvature_config = kwargs.pop("curvature_config", None)
+    # TODO choose proper config file and uncomment
+    #img = daria.curvature_correction(img) if curvature_config is None else daria.curvature_correction(img, curvature_config)
 
-    # Color correction
-    roi_cc = (slice(0, 600), slice(0, 700))
-    colorcorrection = ColorCorrection()
-    img = colorcorrection.adjust(img, roi_cc, verbosity=False, whitebalancing=True)
+    # Transform to RGB space and apply color correction
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    roi_cc = kwargs.pop("roi_color_checker", (slice(0, img.shape[0]), slice(0, img.shape[1])))
+    colorcorrection = daria.ColorCorrection()
+    img = colorcorrection.adjust(img, roi_cc)
 
     # Extract relevant ROI
-    img = img[849:4466, 167:7831]
+    roi = kwargs.pop("roi", (slice(0, img.shape[0]), slice(0, img.shape[1])))
+    img = img[roi]
 
-    # TODO calibration
+    # Convert to grayscale
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
     return img
 
-
-def determine_tracer(img, base):
+def determine_tracer(img, base, **kwargs):
     """Extract tracer based on a reference image"""
+
+    # NOTE: User input required:
+    # * "resize_factor"
+    # * "thresh_min"
+    # * "thresh_max"
+
     # Take (unsigned) difference
     diff = skimage.util.compare_images(img, base, method="diff")
 
+    # Same scaling factor as in preprocessing routine
+    resize_factor = kwargs.pop("resize_factor", 0.1)
+
     # Apply smoothing filter
-    # diff = skimage.filters.rank.median(diff, skimage.morphology.disk(20))
-    diff = skimage.filters.median(diff)
+    diff = skimage.filters.rank.median(diff, skimage.morphology.disk(20 * resize_factor))
+
+    # Calibrate color-concentration map
+
+    # Require threshold values for identifying both 0 and 1 concentrations.
+    thresh_min = kwargs.pop("thresh_min", np.min(diff))
+    thresh_max = kwargs.pop("thresh_max", np.max(diff))
+
+    # Calibrated thresholding
+    tracer_min_mask = diff <= thresh_min
+    diff[tracer_min_mask] = 0
+    diff[~tracer_min_mask] -= thresh_min
+    tracer_max_mask = diff >= thresh_max - thresh_min
+    diff[tracer_max_mask] = thresh_max - thresh_min
+
+    # Rescale image to range full_range
+    diff = skimage.exposure.rescale_intensity(diff)
 
     return diff
 
-
-def postprocessing(img):
-    """Apply simple postprocessing"""
-    # Make images smaller
-    img = skimage.transform.rescale(img, 0.2, anti_aliasing=True)
-
-    # Transform to BGR space
-    return img
-    # return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
 
 class ImageProcessor(FileSystemEventHandler):
@@ -72,11 +99,21 @@ class ImageProcessor(FileSystemEventHandler):
         super().__init__()
         self._target_dir = "/tmp"
 
+        # TODO define config for image analysis
+        #self.config = {
+        #    "resize_factor": 0.4,
+        #    #"curvature_config": {...},
+        #    "roi_color_checker": (slice(0,300), slice(0,300)),
+        #    #"roi": (slice(), slice())
+        #    "thresh_min": 7,
+        #    "thresh_max": 47,
+        #}
+
     def process_background_image(self, img: np.ndarray) -> bool:
         """Returns True if successful"""
         print(f"Processing background image")
         tic = time.time()
-        self._processed_background = correction(img)
+        self._processed_background = preprocessing(img, **self.config)
 
         cv2.imwrite(
             self._target_dir + "/background_img.JPG",
@@ -111,8 +148,8 @@ class ImageProcessor(FileSystemEventHandler):
         tic = time.time()
 
         img = cv2.imread(str(source))
-        proc_img = correction(img)
-        tracer = determine_tracer(proc_img, self._processed_background)
+        proc_img = preprocessing(img, **self.config)
+        tracer = determine_tracer(proc_img, self._processed_background, **self.config)
         proc_tracer = postprocessing(tracer)
 
         cv2.imwrite(f"/tmp/{time_stamp}.jpg", skimage.util.img_as_ubyte(proc_tracer))
