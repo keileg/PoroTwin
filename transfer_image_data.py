@@ -15,6 +15,8 @@ from daria.corrections.color.colorchecker import ColorCorrection
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from image_analysis import PoroTwin1MediumFluidFlowerAnalysis
+
 Parameters = Dict[str, Union[float, List[float]]]
 Vector = np.ndarray
 
@@ -72,16 +74,12 @@ class ImageProcessor(FileSystemEventHandler):
         super().__init__()
         self._target_dir = "/tmp"
 
-    def process_background_image(self, img: np.ndarray) -> bool:
+    def initialize_image_analysis(self, img: np.ndarray) -> bool:
         """Returns True if successful"""
         print(f"Processing background image")
         tic = time.time()
-        self._processed_background = correction(img)
 
-        cv2.imwrite(
-            self._target_dir + "/background_img.JPG",
-            skimage.util.img_as_ubyte(self._processed_background),
-        )
+        self.image_analysis = PoroTwin1MediumFluidFlowerAnalysis(img)
 
         print(f"Done. Elapsed time: {time.time() - tic}.")
         return True
@@ -105,17 +103,13 @@ class ImageProcessor(FileSystemEventHandler):
         self._process_image(full_target, timestamp)
 
     def _process_image(self, source: Path, time_stamp: str) -> None:
-        # Poor man's image processing: Load the image data,
-        # convert to numpy array, do some manipulations.
+        """Load image, determine spatial concentration map, and write to file."""
 
         tic = time.time()
 
         img = cv2.imread(str(source))
-        proc_img = correction(img)
-        tracer = determine_tracer(proc_img, self._processed_background)
-        proc_tracer = postprocessing(tracer)
-
-        cv2.imwrite(f"/tmp/{time_stamp}.jpg", skimage.util.img_as_ubyte(proc_tracer))
+        tracer = self.image_analysis.determine_tracer(img)
+        self.image_analysis.store(tracer, Path(f"/tmp/{time_stamp}"))
 
         print(f"Done. Elapsed time: {time.time() - tic}")
         # Finally send information to
@@ -150,7 +144,7 @@ if __name__ == "__main__":
 
     processor = ImageProcessor()
 
-    processor.process_background_image(cv2.imread(img_cfg["background_image"]))
+    processor.initialize_image_analysis(cv2.imread(img_cfg["background_image"]))
 
     # COSTA Azure configuration: Load connection strings from a
     # file, create a Iot configuration object (COSTA style) which
