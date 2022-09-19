@@ -4,14 +4,11 @@ import shutil
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Union
 
 import cv2
-import daria as da
 import numpy as np
-import skimage
 from Costa.iot import IotConfig, PhysicalDevice
-from daria.corrections.color.colorchecker import ColorCorrection
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -20,49 +17,6 @@ from image_analysis import PoroTwin1MediumFluidFlowerAnalysis
 Parameters = Dict[str, Union[float, List[float]]]
 Vector = np.ndarray
 
-
-def correction(img):
-    """Standard curvature and color correction. Return ROI."""
-
-    # Preprocessing. Transform to RGB space
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    # Curvature correction
-    img = da.curvature_correction(img)
-
-    # Color correction
-    roi_cc = (slice(0, 600), slice(0, 700))
-    colorcorrection = ColorCorrection()
-    img = colorcorrection.adjust(img, roi_cc, verbosity=False, whitebalancing=True)
-
-    # Extract relevant ROI
-    img = img[849:4466, 167:7831]
-
-    # TODO calibration
-
-    return img
-
-
-def determine_tracer(img, base):
-    """Extract tracer based on a reference image"""
-    # Take (unsigned) difference
-    diff = skimage.util.compare_images(img, base, method="diff")
-
-    # Apply smoothing filter
-    # diff = skimage.filters.rank.median(diff, skimage.morphology.disk(20))
-    diff = skimage.filters.median(diff)
-
-    return diff
-
-
-def postprocessing(img):
-    """Apply simple postprocessing"""
-    # Make images smaller
-    img = skimage.transform.rescale(img, 0.2, anti_aliasing=True)
-
-    # Transform to BGR space
-    return img
-    # return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
 
 class ImageProcessor(FileSystemEventHandler):
@@ -114,7 +68,7 @@ class ImageProcessor(FileSystemEventHandler):
         print(f"Done. Elapsed time: {time.time() - tic}")
         # Finally send information to
         tic = time.time()
-        self.device.emit_state({"t": time_stamp}, "image_data", proc_tracer)
+        self.device.emit_state({"t": time_stamp}, "image_data", tracer)
         print(f"Time to send image to Azure: {time.time() - tic}")
 
     def on_any_event(self, event):
