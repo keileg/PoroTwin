@@ -9,7 +9,7 @@ import porepy as pp
 import scipy.sparse as sps
 
 from Costa.api import PhysicsModel
-
+from Costa.iot import IotConfig, PhysicalDevice
 
 Parameters = dict[str, Union[float, list[float]]]
 
@@ -124,9 +124,11 @@ class PorePyPhysicsModel(PhysicsModel):
 
     """
 
-    def __init__(self, model: PorePyCostaModel, config: dict) -> None:
+    def __init__(
+        self, name: str, config: IotConfig, model: PorePyCostaModel, porepy_params: dict
+    ) -> None:
         self._model = model
-        self._config = config
+        self._config = porepy_params
 
         self._model.prepare_simulation()
 
@@ -189,5 +191,41 @@ class PorePyPhysicsModel(PhysicsModel):
         """
         return self._model.solve(params, uprev=uprev, rhs=sigma)
 
-    def control() -> dict[str, bool]:
-        return self._model.control(params)
+    def initial_condition(self, params):
+        return self._model.initial_contition()
+
+    def control(self, payload) -> dict[str, bool]:
+        return self._model.control(payload)
+
+    def qi(self, params: dict, u: np.ndarray, name: str) -> float:
+        return 0
+
+
+class PorePyPhysicalDevice(PhysicalDevice):
+    def __init__(self, name: str, config: IotConfig, model: PorePyCostaModel) -> None:
+        super().__init__(name, config)
+        self._model = model
+
+        self._model.prepare_simulation()
+
+        self.control_params = {}
+
+    def on_control(self, payload: dict) -> dict:
+        self.control_params = payload["params"]
+        self.do_timestep()
+        return {"success": True}
+
+    def wait_poll(self):
+        if self.require_emit:
+            self.send_state()
+
+    def do_timestep(self):
+        self._model.on_control(self.control_params)
+        self.state += self._model.solve({"dt": 1}, self.state)
+        self.require_emit = True
+
+    def send_state(self):
+        #        self.emit_state({}, "pressure", self.state["pressure"])
+        self.emit_state({}, "concentration", self.state)
+        self.emit_refreshed()
+        self.require_emit = False
