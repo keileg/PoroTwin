@@ -105,6 +105,10 @@ class LinearAdvectionInjectionProduction(LinearAdvectionModel):
         # Define boundary condition on faces
         return pp.BoundaryCondition(g, top, "dir")
 
+    def _mass_weight(self, g: pp.Grid) -> np.ndarray:
+        porosity = self.params["porosity"]
+        return porosity * np.ones(g.num_cells)
+
     def update_flow_field(self) -> None:
         """Calculate the flow field, calling an incompressible flow model.
 
@@ -188,10 +192,13 @@ if __name__ == "__main__":
 
     problem_setup = {
         "Nx": [50, 50],
-        "phys_dims": [1, 1],
-        "well_coordinates": np.array([[1 / 4, 1 / 3], [3 / 4, 1 / 3]]).T,
-        "well_rates": [1, -1],
-        "permeability": 1,
+        "phys_dims": [920, 575],
+        "well_coordinates": np.array(
+            [[235, 235], [660, 160], [120, 420], [170, 290], [500, 375], [760, 460]]
+        ).T,
+        "well_rates": [1, -1, 0, 0, 0, 0],
+        "permeability": 666.34 * pp.DARCY,
+        "porosity": 0.375,
     }
 
     if offline:
