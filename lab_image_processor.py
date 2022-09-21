@@ -83,16 +83,19 @@ class LabDevice:
 
     def upload(self, event):
         source = Path(event.src_path)
-        file_name = source.name
-
-        full_name = Path(self._img_config['image_folder']) / file_name
+        
+        # This method will be invoked when the file is created, but the file should not
+        # be read before the entire file is written to file. The solution is to wait a
+        # few seconds before loading.
+        # https://stackoverflow.com/questions/57941401/permissionerror-errno-13-permission-denied-in-watchdog-monitoring-read-text
+        time.sleep(2)
 
         if self.process:
-            time_stamp = datetime.fromtimestamp(os.path.getmtime(full_name)).strftime(
+            time_stamp = datetime.fromtimestamp(os.path.getmtime(source)).strftime(
                 "%Y-%m-%d_%H:%M:%S"
             )
 
-            self._process_image(full_name, time_stamp)
+            self._process_image(source, time_stamp)
             
             self._num_received += 1
 
@@ -103,7 +106,6 @@ class LabDevice:
         tic = time.time()
         
         print(f'Process new image {str(source)}')
-
         img = cv2.imread(str(source))
         proc_img = correction(img)
         tracer = determine_tracer(proc_img, self._processed_background)
@@ -180,18 +182,29 @@ if __name__ == "__main__":
     observer.schedule(handler, img_cfg["image_folder"])
     # Start the process.
     observer.start()
-
-    for fn in ['DSC04407.JPG', 'DSC04408.JPG', 'DSC04425.JPG']:
-        now = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-        full_name = Path(img_cfg["image_folder"]) / Path(fn)
+    
+    while True:
         try:
-            os.remove(full_name)
-        except:
-            pass
-        shutil.copy(Path("C:\\Users\\eke001\\Dropbox\\porotwin_images_math\\") / Path(fn),
-                    Path(img_cfg['image_folder']))
+            now = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+            print(now)
+            time.sleep(60)
+
+        except KeyboardInterrupt:
+            observer.stop()
+            break
+    
+
+    # for fn in ['DSC04407.JPG', 'DSC04408.JPG', 'DSC04425.JPG']:
+    #     now = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    #     full_name = Path(img_cfg["image_folder"]) / Path(fn)
+    #     try:
+    #         os.remove(full_name)
+    #     except:
+    #         pass
+    #     shutil.copy(Path("C:\\Users\\eke001\\Dropbox\\porotwin_images_math\\") / Path(fn),
+    #                 Path(img_cfg['image_folder']))
         
-        time.sleep(10)
+    #     time.sleep(10)
 
     observer.stop()
     # Terminate observer.
