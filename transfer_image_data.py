@@ -33,7 +33,7 @@ class ImageProcessor(FileSystemEventHandler):
         print(f"Processing background image")
         tic = time.time()
 
-        self.image_analysis = PoroTwin1MediumFluidFlowerAnalysis(img)
+        self.image_analysis = ImageAnalysis(img)
 
         print(f"Done. Elapsed time: {time.time() - tic}.")
         return True
@@ -62,8 +62,8 @@ class ImageProcessor(FileSystemEventHandler):
         tic = time.time()
 
         img = cv2.imread(str(source))
-        tracer = self.image_analysis.determine_tracer(img)
-        self.image_analysis.store(tracer, Path(f"/tmp/{time_stamp}"))
+        concentration = self.image_analysis.determine_concentration(img)
+        self.image_analysis.store(concentration, Path(f"/tmp/{time_stamp}"))
 
         print(f"Done. Elapsed time: {time.time() - tic}")
         # Finally send information to
