@@ -1,9 +1,5 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Sep 14 15:56:09 2022
-
-@author: eke001
+"""Runscript that detects new image files, assumed to be pictures of a tracer
+concentration, post process them to get hold of the 
 """
 from pathlib import Path
 from watchdog.events import FileSystemEventHandler
@@ -13,58 +9,15 @@ import time
 import cv2
 import numpy as np
 
-import shutil
+from image_analysis import ImageAnalysis
+
+
 import json
 import os
 
 from Costa import iot
-import skimage
 
 
-
-def correction(img):
-    """Standard curvature and color correction. Return ROI."""
-
-    # Preprocessing. Transform to RGB space
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = skimage.transform.rescale(img, 0.2, anti_aliasing=True)
-
-    # Curvature correction
-    # img = da.curvature_correction(img)
-
-    # Color correction
-    # roi_cc = (slice(0, 600), slice(0, 700))
-    # colorcorrection = ColorCorrection()
-    # img = colorcorrection.adjust(img, roi_cc, verbosity=False, whitebalancing=True)
-
-    # Extract relevant ROI
-    # img = img[849:4466, 167:7831]
-
-    # TODO calibration
-
-    return img
-
-
-def determine_tracer(img, base):
-    """Extract tracer based on a reference image"""
-    # Take (unsigned) difference
-    diff = skimage.util.compare_images(img, base, method="diff")
-
-    # Apply smoothing filter
-    # diff = skimage.filters.rank.median(diff, skimage.morphology.disk(20))
-    diff = skimage.filters.median(diff)
-
-    return diff
-
-
-def postprocessing(img):
-    """Apply simple postprocessing"""
-    # Make images smaller
-    #    img = skimage.transform.rescale(img, 0.2, anti_aliasing=True)
-
-    # Transform to BGR space
-    return img
-    # return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
 class LabDevice:
     def __init__(self, name, iot_config, img_config):
@@ -78,8 +31,8 @@ class LabDevice:
         if self.process:
             img = cv2.imread(img_config["background_image"])
             self.device = iot.PhysicalDevice(name=name, config=iot_config)
-
-            self.process_background_image(img)
+            
+            self.image_analysis = ImageAnalysis(img)
 
     def upload(self, event):
         source = Path(event.src_path)
@@ -107,32 +60,14 @@ class LabDevice:
         
         print(f'Process new image {str(source)}')
         img = cv2.imread(str(source))
-        proc_img = correction(img)
-        tracer = determine_tracer(proc_img, self._processed_background)
-        proc_tracer = postprocessing(tracer)
-
-        cv2.imwrite(f"/tmp/{time_stamp}.jpg", skimage.util.img_as_ubyte(proc_tracer))
-
+        concentration = self.image_analysis.determine_concentration(img)
+        self.image_analysis.store(concentration, Path(self._img_config['storage_folder']) / Path(time_stamp))
+        
         print(f"Done. Elapsed time: {time.time() - tic}")
         # Finally send information to
         tic = time.time()
-        self.device.emit_state({"t": time_stamp}, "image_data", proc_tracer)
+        self.device.emit_state({"t": time_stamp}, "image_data", concentration)
         print(f"Time to send image to Azure: {time.time() - tic}")        
-
-    def process_background_image(self, img: np.ndarray) -> bool:
-        """Returns True if successful"""
-        print("Processing background image")
-        tic = time.time()
-        self._processed_background = correction(img)
-
-        cv2.imwrite(
-            str(Path(self._img_config['image_folder']) / Path("background_img.JPG")),
-            skimage.util.img_as_ubyte(self._processed_background),
-        )
-
-        print(f"Done. Elapsed time: {time.time() - tic}.")
-        return True
-
 
 
 class ImageHandler(FileSystemEventHandler):
@@ -182,6 +117,8 @@ if __name__ == "__main__":
     observer.schedule(handler, img_cfg["image_folder"])
     # Start the process.
     observer.start()
+    
+    print("Processor is online")
     
     while True:
         try:
