@@ -1,0 +1,11 @@
+{
+    "dimensions": {
+        "width": 0.92,
+        "height": 0.555,
+        "depth": 0.01
+    },
+    "physics": {
+        "porosity": 0.375
+    },
+    "description": "Rig for PoroTwin1 - optimal control experiment"
+}
