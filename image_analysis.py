@@ -33,16 +33,16 @@ class ImageAnalysis:
         self.curvature_correction_rescaled = daria.CurvatureCorrection(
             config_source=Path("./image_analysis_config_rescaled.json")
         )
-        
+
         # Store original baseline image in RGB color space and extract scalar information
         self.base = cv2.cvtColor(base, cv2.COLOR_BGR2RGB)
         self.base_gray = self.extract_scalar_information(self.base)
 
         # Preprocess baseline image
-        print('ImageAnalysis: Preprocessing baseline image')
+        print("ImageAnalysis: Preprocessing baseline image")
         tic = time.time()
         self.base_processed = self.preprocessing(self.base, apply_rescaling=False)
-        print(f'Done. Elapsed time: {time.time() - tic}')
+        print(f"Done. Elapsed time: {time.time() - tic}")
 
         # Some hardcoded config data (incl. not JSON serializable data)
         roi = {
@@ -53,13 +53,13 @@ class ImageAnalysis:
 
         # Find the water zone based on the preprocessed baseline image;
         # This routine creates self.reservoir.
-        print('Identify and process water zone')
+        print("Identify and process water zone")
         tic = time.time()
         self.find_water_zone(self.base_processed, roi["water"])
         self.base_without_water = self.neutralize_water_zone(
             self.base_processed, is_rescaled=False
         )
-        print('Done. Elapsed time {time.time() - tic}')
+        print("Done. Elapsed time {time.time() - tic}")
 
         # Rescale reservoir mask complying with the image size of rescaled and preprocessed images
         self.base_rescaled = daria.utils.resolution.resize(
@@ -76,6 +76,12 @@ class ImageAnalysis:
 
         # Define concentration analysis object based on the scalar ranged baseline image
         self.concentration_analysis = daria.ConcentrationAnalysis(self.base_gray)
+
+        # Define hard-coded conversion rate to fit the color intensity to concentration.
+        # The scaling factor is based on the second test run of the optimal control
+        # experiment. For this, the first minutes have been used to track the injection
+        # rate, and fit 500 ml/hr.
+        self.concentration_analysis.update(scaling_factor=1.0023)
 
     def preprocessing(
         self, img: np.ndarray, apply_rescaling: bool = True
