@@ -12,7 +12,7 @@ from Costa.iot import IotConfig, PhysicalDevice
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from image_analysis import PoroTwin1MediumFluidFlowerAnalysis
+from image_analysis import ImageAnalysis
 
 Parameters = Dict[str, Union[float, List[float]]]
 Vector = np.ndarray
