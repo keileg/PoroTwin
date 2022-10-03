@@ -59,7 +59,7 @@ class ImageAnalysis:
         self.base_without_water = self.neutralize_water_zone(
             self.base_processed, is_rescaled=False
         )
-        print("Done. Elapsed time {time.time() - tic}")
+        print(f"Done. Elapsed time {time.time() - tic}")
 
         # Rescale reservoir mask complying with the image size of rescaled and preprocessed images
         self.base_rescaled = daria.utils.resolution.resize(
@@ -127,8 +127,6 @@ class ImageAnalysis:
         """Convert to correct format (use Cartesian indexing by default)
         and store to file.
         """
-        breakpoint()
-
         plain_path = path.with_suffix("")
 
         # Store the image
