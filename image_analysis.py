@@ -140,7 +140,7 @@ class ImageAnalysis:
 
     def store(
         self,
-        img: np.ndarray,
+        img: daria.Image,
         path: Path,
         cartesian_indexing: bool = True,
         store_image: bool = False,
@@ -154,14 +154,14 @@ class ImageAnalysis:
         if store_image:
             cv2.imwrite(
                 str(plain_path) + "_img.jpg",
-                skimage.util.img_as_ubyte(img),
+                skimage.util.img_as_ubyte(img.img),
                 [int(cv2.IMWRITE_JPEG_QUALITY), 90],
             )
 
         # Store array
         np.save(
             str(plain_path) + "_concentration.npy",
-            daria.matrixToCartesianIndexing(img) if cartesian_indexing else img,
+            daria.matrixToCartesianIndexing(img.img) if cartesian_indexing else img.img,
         )
 
         return True
