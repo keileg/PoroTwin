@@ -6,7 +6,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Union
 
-import cv2
 import numpy as np
 from Costa.iot import IotConfig, PhysicalDevice
 from watchdog.events import FileSystemEventHandler
@@ -18,7 +17,6 @@ Parameters = Dict[str, Union[float, List[float]]]
 Vector = np.ndarray
 
 
-
 class ImageProcessor(FileSystemEventHandler):
     # https://stackoverflow.com/questions/57840072/how-to-check-for-new-files-in-a-folder-in-python
 
@@ -28,12 +26,12 @@ class ImageProcessor(FileSystemEventHandler):
         super().__init__()
         self._target_dir = "/tmp"
 
-    def initialize_image_analysis(self, img: np.ndarray) -> bool:
+    def initialize_image_analysis(self, baseline: Union[Path, list[Path]]) -> bool:
         """Returns True if successful"""
         print(f"Processing background image")
         tic = time.time()
 
-        self.image_analysis = ImageAnalysis(img)
+        self.image_analysis = ImageAnalysis(baseline, "./image_analysis_config.json")
 
         print(f"Done. Elapsed time: {time.time() - tic}.")
         return True
@@ -61,14 +59,16 @@ class ImageProcessor(FileSystemEventHandler):
 
         tic = time.time()
 
-        img = cv2.imread(str(source))
-        concentration = self.image_analysis.determine_concentration(img)
-        self.image_analysis.store(concentration, Path(f"/tmp/{time_stamp}"))
+        self.image_analysis.load_and_process_image(source)
+        concentration = self.image_analysis.determine_concentration()
+        self.image_analysis.store(
+            concentration, Path(f"/tmp/{time_stamp}"), cartesian_indexing=True
+        )
 
         print(f"Done. Elapsed time: {time.time() - tic}")
         # Finally send information to
         tic = time.time()
-        self.device.emit_state({"t": time_stamp}, "image_data", tracer)
+        self.device.emit_state({"t": time_stamp}, "image_data", concentration.img)
         print(f"Time to send image to Azure: {time.time() - tic}")
 
     def on_any_event(self, event):
@@ -98,7 +98,11 @@ if __name__ == "__main__":
 
     processor = ImageProcessor()
 
-    processor.initialize_image_analysis(cv2.imread(img_cfg["background_image"]))
+    # NOTE: There exists the possibility to use multiple baseline images.
+    # They have to be provided as list of Paths. Multiple baseline images
+    # are beneficial as they are utilized to calibrate a cleaning mask
+    # at initialization.
+    processor.initialize_image_analysis(img_cfg["background_image"])
 
     # COSTA Azure configuration: Load connection strings from a
     # file, create a Iot configuration object (COSTA style) which
