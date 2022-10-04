@@ -1,57 +1,41 @@
 {
-    "init": {
-        "resize_factor": 1.0,
-        "horizontal_bulge": 2e-09,
-        "vertical_bulge": 1e-09
+    "description": "Rig for PoroTwin1 - optimal control experiment",
+
+    "physical_asset": {
+        "dimensions": {
+            "width": 0.92,
+            "height": 0.555,
+            "depth": 0.01,
+            "expansion": 0.002
+        },
+        "parameters": {
+            "porosity": 0.375
+        }
     },
-    "dimensions": {
-        "width": 0.92,
-        "height": 0.555,
-        "depth": 0.01
+
+    "geometry": {
+        "init": {"horizontal_bulge": 2e-09, "vertical_bulge": 1e-09},
+        "dimensions": {"width": 0.92, "height": 0.555},
+        "crop": {
+            "pts_src": [[283, 25], [260, 4444], [7665, 4427], [7632, 18]],
+            "width": 0.92,
+            "height": 0.555
+        },
+        "bulge": {
+            "horizontal_bulge": -1.4154072697013973e-09,
+            "vertical_bulge": -7.909917019305702e-10,
+            "horizontal_center_offset": 143,
+            "vertical_center_offset": 93
+        },
+        "stretch": {
+            "horizontal_stretch": -1.3896593681548202e-09,
+            "horizontal_center_offset": 0,
+            "vertical_stretch": -3.0852102803383441e-09,
+            "vertical_center_offset": 0
+        }
     },
-    "crop": {
-        "pts_src": [
-            [
-                281,
-                34
-            ],
-            [
-                259,
-                4443
-            ],
-            [
-                7661,
-                4426
-            ],
-            [
-                7632,
-                20
-            ]
-        ],
-        "width": 0.92,
-        "height": 0.555,
-        "in meters": true
-    },
-    "bulge_vertical": {
-        "vertical_bulge": -7.067016446290003e-10,
-        "horizontal_center_offset": -6,
-        "vertical_center_offset": -52
-    },
-    "bulge_horizontal": {
-        "horizontal_bulge": -1.1990602746616518e-09,
-        "horizontal_center_offset": 0,
-        "vertical_center_offset": 139
-    },
-    "bulge": {
-        "vertical_bulge": -7.067016446290003e-10,
-        "horizontal_bulge": -1.1990602746616518e-09,
-        "horizontal_center_offset": 0,
-        "vertical_center_offset": 139
-    },
-    "stretch": {
-        "horizontal_stretch": -1.3896593681548202e-09,
-        "horizontal_center_offset": 0,
-        "vertical_stretch": -3.085210280338344e-09,
-        "vertical_center_offset": 0
+
+    "calibration": {
+        "scaling": 3.1796875
     }
 }
