@@ -18,26 +18,27 @@ import os
 from Costa import iot
 
 
-
 class LabDevice:
     def __init__(self, name, iot_config, img_config):
-        
+
         self._img_config = img_config
-        
+
         self.process = True
-        
-        self._num_received=0
-        
+
+        self._num_received = 0
+
         if self.process:
             img = cv2.imread(img_config["background_image"])
             self.device = iot.PhysicalDevice(name=name, config=iot_config)
-            
-            self.image_analysis = ImageAnalysis(baseline=img_config["background_image"],
-                                                config_source=img_config['config_source'])
+
+            self.image_analysis = ImageAnalysis(
+                baseline=img_config["background_image"],
+                config_source=img_config["config_source"],
+            )
 
     def upload(self, event):
         source = Path(event.src_path)
-        
+
         # This method will be invoked when the file is created, but the file should not
         # be read before the entire file is written to file. The solution is to wait a
         # few seconds before loading.
@@ -50,24 +51,26 @@ class LabDevice:
             )
 
             self._process_image(source, time_stamp)
-            
+
             self._num_received += 1
 
     def _process_image(self, source: Path, time_stamp: str) -> None:
 
         tic = time.time()
-        
-        print(f'Process new image {str(source)}')
-        #img = cv2.imread(str(source))
+
+        print(f"Process new image {str(source)}")
+        # img = cv2.imread(str(source))
         self.image_analysis.load_and_process_image(source)
         concentration = self.image_analysis.determine_concentration()
-        self.image_analysis.store(concentration, Path(self._img_config['storage_folder']) / Path(source.stem))
-        
+        self.image_analysis.store(
+            concentration, Path(self._img_config["storage_folder"]) / Path(source.stem)
+        )
+
         print(f"Done. Elapsed time: {time.time() - tic}")
         # Finally send information to
         tic = time.time()
         self.device.emit_state({"t": time_stamp}, "image_data", concentration.img)
-        print(f"Time to send image to Azure: {time.time() - tic}")        
+        print(f"Time to send image to Azure: {time.time() - tic}")
 
 
 class ImageHandler(FileSystemEventHandler):
@@ -89,7 +92,6 @@ class IotConfigJson(iot.IotConfig):
 
         self.devices = {"lab_device": config["COSTA_PHYSICAL_CSTR"]}
 
-    
 
 if __name__ == "__main__":
 
@@ -108,18 +110,16 @@ if __name__ == "__main__":
         cfg = json.load(f)
     iot_config = IotConfigJson(cfg)
 
-    device= LabDevice(
-        name="lab_device", iot_config=iot_config, img_config=img_cfg
-    ) 
+    device = LabDevice(name="lab_device", iot_config=iot_config, img_config=img_cfg)
 
     handler = ImageHandler(device)
 
     observer.schedule(handler, img_cfg["image_folder"])
     # Start the process.
     observer.start()
-    
+
     print("Processor is online")
-    
+
     while True:
         try:
             now = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
@@ -129,7 +129,6 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             observer.stop()
             break
-    
 
     # for fn in ['DSC04407.JPG', 'DSC04408.JPG', 'DSC04425.JPG']:
     #     now = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
@@ -140,7 +139,7 @@ if __name__ == "__main__":
     #         pass
     #     shutil.copy(Path("C:\\Users\\eke001\\Dropbox\\porotwin_images_math\\") / Path(fn),
     #                 Path(img_cfg['image_folder']))
-        
+
     #     time.sleep(10)
 
     observer.stop()
