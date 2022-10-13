@@ -6,8 +6,6 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from datetime import datetime
 import time
-import cv2
-import numpy as np
 
 from image_analysis import ImageAnalysis
 
@@ -28,11 +26,15 @@ class LabDevice:
         self._num_received = 0
 
         if self.process:
-            img = cv2.imread(img_config["background_image"])
             self.device = iot.PhysicalDevice(name=name, config=iot_config)
 
+            # File all picture files in the directory of baseline images.
+            # This asumes all relevant files start with DSC.
+            baseline_files = list(
+                sorted(Path(img_config["background_image"]).glob("DSC*"))
+            )
             self.image_analysis = ImageAnalysis(
-                baseline=img_config["background_image"],
+                baseline=baseline_files,
                 config_source=img_config["config_source"],
             )
 
