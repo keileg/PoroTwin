@@ -32,7 +32,8 @@ class LabDevice:
             img = cv2.imread(img_config["background_image"])
             self.device = iot.PhysicalDevice(name=name, config=iot_config)
             
-            self.image_analysis = ImageAnalysis(img)
+            self.image_analysis = ImageAnalysis(baseline=img_config["background_image"],
+                                                config_source=img_config['config_source'])
 
     def upload(self, event):
         source = Path(event.src_path)
@@ -53,20 +54,19 @@ class LabDevice:
             self._num_received += 1
 
     def _process_image(self, source: Path, time_stamp: str) -> None:
-        # Poor man's image processing: Load the image data,
-        # convert to numpy array, do some manipulations.
 
         tic = time.time()
         
         print(f'Process new image {str(source)}')
-        img = cv2.imread(str(source))
-        concentration = self.image_analysis.determine_concentration(img)
-        self.image_analysis.store(concentration, Path(self._img_config['storage_folder']) / Path(time_stamp))
+        #img = cv2.imread(str(source))
+        self.image_analysis.load_and_process_image(source)
+        concentration = self.image_analysis.determine_concentration()
+        self.image_analysis.store(concentration, Path(self._img_config['storage_folder']) / Path(source.stem))
         
         print(f"Done. Elapsed time: {time.time() - tic}")
         # Finally send information to
         tic = time.time()
-        self.device.emit_state({"t": time_stamp}, "image_data", concentration)
+        self.device.emit_state({"t": time_stamp}, "image_data", concentration.img)
         print(f"Time to send image to Azure: {time.time() - tic}")        
 
 
